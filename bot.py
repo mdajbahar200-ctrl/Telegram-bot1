@@ -35,7 +35,7 @@ def main_menu():
         [InlineKeyboardButton(text="🛒 Buy Products", callback_data="buy_list")],
         [InlineKeyboardButton(text="👤 Profile", callback_data="my_profile"),
          InlineKeyboardButton(text="💳 Deposit", callback_data="add_money")],
-        [InlineKeyboardButton(text="📞 Support", url="https://t.me/Rafi_gaming99")]
+        [InlineKeyboardButton(text="📞 Support", url="t.me/Rafi_gaming99")]
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
