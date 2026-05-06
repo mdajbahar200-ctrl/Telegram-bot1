@@ -29,11 +29,86 @@ logging.basicConfig(level=logging.INFO)
 bot = Bot(token=API_TOKEN)
 dp = Dispatcher()
 
-# --- কিবোর্ড ফাংশনসমূহ (স্ক্রিনশট অনুযায়ী) ---
+# --- কিবোর্ড ফাংশনসমূহ ---
 
 def main_menu():
     buttons = [
         [InlineKeyboardButton(text="🛒 Buy Products", callback_data="buy_list")],
+        [InlineKeyboardButton(text="👤 Profile", callback_data="my_profile"),
+         InlineKeyboardButton(text="💳 Deposit", callback_data="add_money")],
+        [InlineKeyboardButton(text="📞 Support", url="https://t.me/Rafi_gaming99")]
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+def product_list_menu():
+    # আপনার ডেমো স্ক্রিনশট অনুযায়ী লিস্ট
+    products = [
+        {"name": "420495xx:USD$2111", "price": 2500, "id": "p1"},
+        {"name": "435880xx:USD$500", "price": 600, "id": "p2"},
+        {"name": "461126xx:CAD$500", "price": 550, "id": "p3"},
+    ]
+    
+    keyboard = []
+    for p in products:
+        keyboard.append([
+            InlineKeyboardButton(text=f"✅ {p['name']}", callback_data="info"),
+            InlineKeyboardButton(text="🛒 Purchase", callback_data=f"buy_{p['id']}")
+        ])
+    
+    keyboard.append([
+        InlineKeyboardButton(text="💳 Visa", callback_data="v"),
+        InlineKeyboardButton(text="🟠 Master", callback_data="m"),
+        InlineKeyboardButton(text="🔵 Amex", callback_data="a")
+    ])
+    
+    keyboard.append([
+        InlineKeyboardButton(text="⬅️ Back", callback_data="main_menu"),
+        InlineKeyboardButton(text="🔄 Refresh", callback_data="buy_list"),
+        InlineKeyboardButton(text="➡️ Next", callback_data="next")
+    ])
+    
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)
+
+# --- হ্যান্ডলারসমূহ ---
+
+@dp.message(Command("start"))
+async def cmd_start(message: types.Message):
+    welcome_text = (
+        f"⚜️ **CentsCard Gift Cards Exchange Bot** ⚜️\n\n"
+        f"👤 **Welcome** {message.from_user.first_name} 🥳\n"
+        f"💰 **Account Balance:** $0.24\n"
+        f"📢 **STOCK Updates:** [Notify Channel](https://t.me/Rafi_gaming99)\n\n"
+        "What can you do here?\n"
+        "Profile → 💰 Deposit → 📋 Listings → 🛒 Buy"
+    )
+    await message.answer(welcome_text, reply_markup=main_menu(), parse_mode="Markdown")
+
+@dp.callback_query(F.data == "buy_list")
+async def process_buy_list(callback: types.CallbackQuery):
+    await callback.message.edit_text(
+        text="🛍 **Available Listings:**",
+        reply_markup=product_list_menu(),
+        parse_mode="Markdown"
+    )
+
+@dp.callback_query(F.data == "main_menu")
+async def process_back_main(callback: types.CallbackQuery):
+    welcome_text = (
+        f"⚜️ **CentsCard Gift Cards Exchange Bot** ⚜️\n\n"
+        f"💰 **Account Balance:** $0.24"
+    )
+    await callback.message.edit_text(welcome_text, reply_markup=main_menu(), parse_mode="Markdown")
+
+@dp.callback_query(F.data.startswith("buy_"))
+async def buy_item(callback: types.CallbackQuery):
+    await callback.answer(text="❌ পর্যাপ্ত ব্যালেন্স নেই!", show_alert=True)
+
+async def main():
+    await dp.start_polling(bot)
+
+if __name__ == "__main__":
+    keep_alive() 
+    asyncio.run(main())
         [InlineKeyboardButton(text="👤 Profile", callback_data="my_profile"),
          InlineKeyboardButton(text="💳 Deposit", callback_data="add_money")],
         [InlineKeyboardButton(text="📞 Support", url="https://t.me/Rafi_gaming99")]
