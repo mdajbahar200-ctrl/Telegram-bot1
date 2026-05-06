@@ -25,7 +25,7 @@ def keep_alive():
 
 # --- কনফিগারেশন ---
 API_TOKEN = '8629069708:AAFrAwq3U4FU1yOlEITgbhTzKrJDhOCSosM'
-ADMIN_ID = 123456789  # <--- এখানে আপনার টেলিগ্রাম আইডি বসান
+ADMIN_ID = 6878641639  # <--- এখানে আপনার টেলিগ্রাম আইডি বসান
 
 logging.basicConfig(level=logging.INFO)
 bot = Bot(token=API_TOKEN)
