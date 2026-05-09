@@ -1,13 +1,14 @@
-import asyncio
 import logging
+import requests
+import random
+import string
 import os
 from flask import Flask
 from threading import Thread
-from aiogram import Bot, Dispatcher, types, F
-from aiogram.filters import Command
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
 
-# --- Render-এর জন্য Flask সার্ভার ---
+# --- Flask Server for Render (Keep Alive) ---
 app = Flask('')
 
 @app.route('/')
@@ -15,132 +16,85 @@ def home():
     return "Bot is running!"
 
 def run():
-    port = int(os.environ.get("PORT", 10000))
+    # রেন্ডার অটোমেটিক পোর্ট অ্যাসাইন করে, তাই এটি জরুরি
+    port = int(os.environ.get("PORT", 8080))
     app.run(host='0.0.0.0', port=port)
 
 def keep_alive():
     t = Thread(target=run)
-    t.daemon = True
     t.start()
 
-# --- কনফিগারেশন ---
-API_TOKEN = '8629069708:AAFrAwq3U4FU1yOlEITgbhTzKrJDhOCSosM'
-ADMIN_ID = 6878641639  # <--- এখানে আপনার টেলিগ্রাম আইডি বসান
+# --- বটের মূল সেটিংস ---
+TOKEN = '8691093894:AAE_BONWwZbanaHBTlJJqAFx3cPY2f_s5rk'
+API_URL = "https://www.1secmail.com/api/v1/action"
 
-logging.basicConfig(level=logging.INFO)
-bot = Bot(token=API_TOKEN)
-dp = Dispatcher()
+logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 
-# --- কিবোর্ডসমূহ ---
+def generate_username():
+    return ''.join(random.choices(string.ascii_lowercase + string.digits, k=10))
 
-def main_menu():
-    buttons = [
-        [InlineKeyboardButton(text="🛒 Buy Products", callback_data="buy_list")],
-        [InlineKeyboardButton(text="👤 Profile", callback_data="my_profile"),
-         InlineKeyboardButton(text="💳 Deposit", callback_data="add_money")],
-        [InlineKeyboardButton(text="📞 Support", url="https://t.me/Rafi_gaming99")]
+def main_menu_keyboard():
+    keyboard = [
+        [InlineKeyboardButton("📧 Generate New Mail", callback_data='gen_email')],
+        [InlineKeyboardButton("📥 Check Inbox", callback_data='check_inbox'),
+         InlineKeyboardButton("🔄 Refresh", callback_data='check_inbox')],
+        [InlineKeyboardButton("🗑️ Delete Session", callback_data='delete_mail')],
+        [InlineKeyboardButton("📢 Support", url="https://t.me/Rafi_gaming99")]
     ]
-    return InlineKeyboardMarkup(inline_keyboard=buttons)
+    return InlineKeyboardMarkup(keyboard)
 
-def admin_menu():
-    buttons = [
-        [InlineKeyboardButton(text="➕ Add Product", callback_data="admin_add")],
-        [InlineKeyboardButton(text="💰 Change Balance", callback_data="admin_bal")],
-        [InlineKeyboardButton(text="📢 Broadcast Message", callback_data="admin_bc")],
-        [InlineKeyboardButton(text="🔙 Exit Admin", callback_data="main_menu")]
-    ]
-    return InlineKeyboardMarkup(inline_keyboard=buttons)
-
-def product_list_menu():
-    products = [
-        {"name": "420495xx:USD$2111", "price": 2500, "id": "p1"},
-        {"name": "435880xx:USD$500", "price": 600, "id": "p2"},
-        {"name": "461126xx:CAD$500", "price": 550, "id": "p3"},
-    ]
-    keyboard = []
-    for p in products:
-        keyboard.append([
-            InlineKeyboardButton(text=f"✅ {p['name']}", callback_data="info"),
-            InlineKeyboardButton(text="🛒 Purchase", callback_data=f"buy_{p['id']}")
-        ])
-    keyboard.append([
-        InlineKeyboardButton(text="💳 Visa", callback_data="v"),
-        InlineKeyboardButton(text="🟠 Master", callback_data="m"),
-        InlineKeyboardButton(text="🔵 Amex", callback_data="a")
-    ])
-    keyboard.append([
-        InlineKeyboardButton(text="⬅️ Back", callback_data="main_menu"),
-        InlineKeyboardButton(text="🔄 Refresh", callback_data="buy_list")
-    ])
-    return InlineKeyboardMarkup(inline_keyboard=keyboard)
-
-# --- ইউজার হ্যান্ডলারসমূহ ---
-
-@dp.message(Command("start"))
-async def cmd_start(message: types.Message):
-    welcome_text = (
-        f"⚜️ **CentsCard Gift Cards Exchange Bot** ⚜️\n\n"
-        f"👤 **Welcome** {message.from_user.first_name} 🥳\n"
-        f"💰 **Account Balance:** $0.24\n"
-        f"📢 **STOCK Updates:** [Notify Channel](https://t.me/Rafi_gaming99)\n"
-    )
-    await message.answer(welcome_text, reply_markup=main_menu(), parse_mode="Markdown")
-
-@dp.callback_query(F.data == "buy_list")
-async def process_buy_list(callback: types.CallbackQuery):
-    await callback.message.edit_text(
-        text="🛍 **Available Listings:**\nFalse = Not used on PayPal\nTrue = Used on PayPal",
-        reply_markup=product_list_menu(),
-        parse_mode="Markdown"
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_name = update.effective_user.first_name
+    await update.message.reply_text(
+        f"Hi {user_name}! 👋\nআমি আপনার ব্যক্তিগত **Temp Mail Bot**।\nনিচের বাটনগুলো ব্যবহার করুন:",
+        reply_markup=main_menu_keyboard(),
+        parse_mode='Markdown'
     )
 
-@dp.callback_query(F.data == "main_menu")
-async def process_back_main(callback: types.CallbackQuery):
-    welcome_text = (
-        f"⚜️ **CentsCard Gift Cards Exchange Bot** ⚜️\n\n"
-        f"💰 **Account Balance:** $0.24"
-    )
-    try:
-        await callback.message.edit_text(welcome_text, reply_markup=main_menu(), parse_mode="Markdown")
-    except:
-        await callback.message.answer(welcome_text, reply_markup=main_menu(), parse_mode="Markdown")
-    await callback.answer()
+async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer("প্রসেসিং হচ্ছে...") 
 
-# --- এডমিন হ্যান্ডলারসমূহ ---
+    if query.data == 'gen_email':
+        user = generate_username()
+        domain = "1secmail.com"
+        email = f"{user}@{domain}"
+        context.user_data['email'] = email
+        context.user_data['user'] = user
+        context.user_data['domain'] = domain
+        
+        text = f"✨ **নতুন ইমেল:**\n📧 `{email}`\n\nমেসেজ আসলে **Check Inbox** চাপুন।"
+        await query.edit_message_text(text, parse_mode='Markdown', reply_markup=main_menu_keyboard())
 
-@dp.message(Command("admin"))
-async def cmd_admin(message: types.Message):
-    if message.from_user.id == ADMIN_ID:
-        await message.answer("👑 **Admin Panel**\nবট নিয়ন্ত্রণের অপশন সিলেক্ট করুন:", reply_markup=admin_menu(), parse_mode="Markdown")
-    else:
-        await message.answer("❌ আপনি এই বটের এডমিন নন!")
+    elif query.data == 'check_inbox':
+        user = context.user_data.get('user')
+        domain = context.user_data.get('domain')
+        if not user:
+            await query.edit_message_text("❌ আগে একটি ইমেল তৈরি করুন।", reply_markup=main_menu_keyboard())
+            return
+        
+        response = requests.get(f"{API_URL}?action=getMessages&login={user}&domain={domain}").json()
+        if not response:
+            await query.edit_message_text(f"📭 ইমেল: `{context.user_data['email']}`\n\n**ইনবক্স খালি।**", parse_mode='Markdown', reply_markup=main_menu_keyboard())
+        else:
+            msg_list = f"📩 **ইনবক্স (Email: `{context.user_data['email']}`):**\n\n"
+            for msg in response[:3]:
+                msg_id = msg['id']
+                details = requests.get(f"{API_URL}?action=readMessage&login={user}&domain={domain}&id={msg_id}").json()
+                msg_list += f"👤 **From:** {msg['from']}\n📌 **Subject:** {msg['subject']}\n📝 **Message:** {details['textBody']}\n---\n"
+            await query.edit_message_text(msg_list, parse_mode='Markdown', reply_markup=main_menu_keyboard())
 
-@dp.callback_query(F.data.startswith("admin_"))
-async def process_admin_actions(callback: types.CallbackQuery):
-    if callback.from_user.id != ADMIN_ID:
-        return await callback.answer("অ্যাক্সেস ডিনাইড!", show_alert=True)
-    
-    if callback.data == "admin_add":
-        await callback.message.answer("📝 নতুন প্রোডাক্ট যোগ করার সিস্টেম ডেভেলপ করা হচ্ছে...")
-    elif callback.data == "admin_bal":
-        await callback.message.answer("💰 ব্যালেন্স পরিবর্তনের অপশন শীঘ্রই আসছে...")
-    elif callback.data == "admin_bc":
-        await callback.message.answer("📢 ব্রডকাস্ট মেসেজ টাইপ করুন (সিস্টেম আপডেটিং...)")
-    await callback.answer()
+    elif query.data == 'delete_mail':
+        context.user_data.clear()
+        await query.edit_message_text("🗑️ সেশন ডিলিট করা হয়েছে।", reply_markup=main_menu_keyboard())
 
-@dp.callback_query(F.data.startswith("buy_"))
-async def buy_item(callback: types.CallbackQuery):
-    await callback.answer(text="❌ পর্যাপ্ত ব্যালেন্স নেই! $0.24 আছে।", show_alert=True)
+def main():
+    keep_alive() # Flask সার্ভার চালু করা
+    app_bot = Application.builder().token(TOKEN).build()
+    app_bot.add_handler(CommandHandler("start", start))
+    app_bot.add_handler(CallbackQueryHandler(button_handler))
+    print("বট এবং সার্ভার চালু হয়েছে!")
+    app_bot.run_polling()
 
-# --- মেইন ফাংশন ---
-
-async def main():
-    await bot.delete_webhook(drop_pending_updates=True)
-    await dp.start_polling(bot)
-
-if __name__ == "__main__":
-    keep_alive()
-    try:
-        asyncio.run(main())
-    except (KeyboardInterrupt, SystemExit):
-        logging.info("Bot stopped!")
+if __name__ == '__main__':
+    main()
