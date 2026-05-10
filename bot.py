@@ -3,17 +3,16 @@ import requests
 import random
 import string
 import os
+import time
 from flask import Flask
 from threading import Thread
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
 
-# --- Flask Server for Render (Keep Alive) ---
+# --- Flask Server for Render ---
 app = Flask('')
-
 @app.route('/')
-def home():
-    return "Bot is running!"
+def home(): return "Bot is running!"
 
 def run():
     port = int(os.environ.get("PORT", 8080))
@@ -25,123 +24,112 @@ def keep_alive():
 
 # --- Bot Settings ---
 TOKEN = '8691093894:AAE_BONWwZbanaHBTlJJqAFx3cPY2f_s5rk'
-API_URL = "https://www.1secmail.com/api/v1/action"
+MAIL_TM_API = "https://api.mail.tm"
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 
-# --- Top 5 Best Domains (No Login Required) ---
-DOMAINS = [
-    "1secmail.com", 
-    "1secmail.org", 
-    "1secmail.net",
-    "kzbox.me",      # High success rate
-    "vjuum.com"      # Alternative domain
-]
+def generate_random_string(length=10):
+    return ''.join(random.choices(string.ascii_lowercase + string.digits, k=length))
 
-def generate_username():
-    return ''.join(random.choices(string.ascii_lowercase + string.digits, k=10))
-
-def main_menu_keyboard():
+def main_menu():
     keyboard = [
-        [InlineKeyboardButton("📧 Generate New Mail", callback_data='gen_email')],
-        [InlineKeyboardButton("📥 Check Inbox", callback_data='check_inbox'),
-         InlineKeyboardButton("🔄 Refresh", callback_data='check_inbox')],
-        [InlineKeyboardButton("🌐 Switch Domain (5 Options)", callback_data='switch_domain')],
-        [InlineKeyboardButton("🗑️ Delete Session", callback_data='delete_mail')],
+        [InlineKeyboardButton("📧 Generate Mail (Premium)", callback_data='gen_mail')],
+        [InlineKeyboardButton("📥 Check Inbox", callback_data='check_inbox')],
+        [InlineKeyboardButton("🔄 Refresh", callback_data='check_inbox')],
+        [InlineKeyboardButton("🗑️ Clear Session", callback_data='delete_mail')],
         [InlineKeyboardButton("📢 Support", url="https://t.me/Rafi_gaming99")]
     ]
     return InlineKeyboardMarkup(keyboard)
 
-def domain_selection_keyboard():
-    keyboard = []
-    # Creating a grid of domains
-    for domain in DOMAINS:
-        keyboard.append([InlineKeyboardButton(f"🔹 {domain}", callback_data=f"set_dom_{domain}")])
-    keyboard.append([InlineKeyboardButton("🔙 Back to Menu", callback_data='back_to_main')])
-    return InlineKeyboardMarkup(keyboard)
-
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_name = update.effective_user.first_name
     await update.message.reply_text(
-        f"Hi {user_name}! 👋\nWelcome to your **Advanced Temp Mail Bot**.\nI provide 5 different domains for better OTP success!",
-        reply_markup=main_menu_keyboard(),
-        parse_mode='Markdown'
+        "🚀 **Pro Temp Mail Bot (2026 Edition)**\n\nI am now using **Mail.tm & Internxt** technology to ensure you get OTPs instantly.\n\nClick below to get your email:",
+        reply_markup=main_menu(), parse_mode='Markdown'
     )
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer("Working...") 
+    await query.answer()
 
-    if query.data == 'gen_email':
-        user = generate_username()
-        # Default to first domain if not selected
-        domain = context.user_data.get('domain', DOMAINS[0])
-        email = f"{user}@{domain}"
-        
-        context.user_data['email'] = email
-        context.user_data['user'] = user
-        context.user_data['domain'] = domain
-        
-        text = (
-            f"✅ **Temp Mail Ready!**\n\n"
-            f"📧 **Address:** `{email}`\n"
-            f"🌐 **Domain:** {domain}\n\n"
-            f"Tap the email to copy. If you don't get the OTP, try another domain from 'Switch Domain'."
-        )
-        await query.edit_message_text(text, parse_mode='Markdown', reply_markup=main_menu_keyboard())
-
-    elif query.data == 'switch_domain':
-        await query.edit_message_text("⚙️ **Select your preferred domain:**\n\nTips: If one domain is blocked by a site, try another one from this list.", 
-                                      reply_markup=domain_selection_keyboard(), parse_mode='Markdown')
-
-    elif query.data.startswith('set_dom_'):
-        new_domain = query.data.replace('set_dom_', '')
-        context.user_data['domain'] = new_domain
-        await query.edit_message_text(f"✅ **Selected:** {new_domain}\nNow click 'Generate' to get an email with this domain.", 
-                                      reply_markup=main_menu_keyboard(), parse_mode='Markdown')
+    if query.data == 'gen_mail':
+        try:
+            # Step 1: Get available domain from Mail.tm
+            domain_res = requests.get(f"{MAIL_TM_API}/domains").json()
+            domain = domain_res['hydra:member'][0]['domain']
+            
+            # Step 2: Create Account
+            username = f"{generate_random_string()}@{domain}"
+            password = generate_random_string()
+            
+            acc_res = requests.post(f"{MAIL_TM_API}/accounts", json={
+                "address": username,
+                "password": password
+            })
+            
+            if acc_res.status_code == 201:
+                # Step 3: Get Token
+                token_res = requests.post(f"{MAIL_TM_API}/token", json={
+                    "address": username,
+                    "password": password
+                }).json()
+                
+                context.user_data.update({
+                    'email': username,
+                    'token': token_res['token'],
+                    'id': acc_res.json()['id']
+                })
+                
+                await query.edit_message_text(
+                    f"✨ **New Premium Email:**\n`{username}`\n\n✅ This email works on Facebook, Google, and more.\n✅ Tap to copy. Then click **Check Inbox**.",
+                    parse_mode='Markdown', reply_markup=main_menu()
+                )
+            else:
+                await query.edit_message_text("❌ Failed to generate mail. Try again.", reply_markup=main_menu())
+        except Exception as e:
+            logging.error(e)
+            await query.edit_message_text("⚠️ Service currently busy. Please try again in a moment.", reply_markup=main_menu())
 
     elif query.data == 'check_inbox':
-        user = context.user_data.get('user')
-        domain = context.user_data.get('domain')
+        token = context.user_data.get('token')
+        email = context.user_data.get('email')
         
-        if not user:
-            await query.edit_message_text("❌ No active email! Click Generate first.", reply_markup=main_menu_keyboard())
+        if not token:
+            await query.edit_message_text("❌ No active session! Generate a mail first.", reply_markup=main_menu())
             return
-        
-        try:
-            response = requests.get(f"{API_URL}?action=getMessages&login={user}&domain={domain}")
-            if response.status_code != 200:
-                await query.edit_message_text("⚠️ Server lag. Please refresh in 5 seconds.", reply_markup=main_menu_keyboard())
-                return
-            
-            data = response.json()
-            if not data:
-                await query.edit_message_text(f"📭 **Mail:** `{context.user_data['email']}`\n\n**Status:** Inbox is empty. Waiting for message...", 
-                                              parse_mode='Markdown', reply_markup=main_menu_keyboard())
-            else:
-                msg_list = f"📩 **Inbox for `{context.user_data['email']}`:**\n\n"
-                for msg in data[:3]:
-                    msg_id = msg['id']
-                    msg_details = requests.get(f"{API_URL}?action=readMessage&login={user}&domain={domain}&id={msg_id}").json()
-                    msg_list += f"👤 **From:** {msg['from']}\n📌 **Sub:** {msg['subject']}\n📝 **OTP/Body:** `{msg_details['textBody']}`\n---\n"
-                await query.edit_message_text(msg_list, parse_mode='Markdown', reply_markup=main_menu_keyboard())
-        except:
-            await query.edit_message_text("❌ Connection error. Try again.", reply_markup=main_menu_keyboard())
 
-    elif query.data == 'back_to_main':
-        await query.edit_message_text("How can I help you today?", reply_markup=main_menu_keyboard())
+        headers = {"Authorization": f"Bearer {token}"}
+        try:
+            # Fetch messages
+            res = requests.get(f"{MAIL_TM_API}/messages", headers=headers).json()
+            messages = res.get('hydra:member', [])
+            
+            if not messages:
+                await query.edit_message_text(
+                    f"📭 **Email:** `{email}`\n\n**Status:** No messages yet. (Send your OTP and wait 30 seconds)", 
+                    parse_mode='Markdown', reply_markup=main_menu()
+                )
+            else:
+                msg_text = f"📩 **Inbox for `{email}`:**\n\n"
+                for m in messages[:3]:
+                    # Fetch full message body
+                    m_id = m['id']
+                    m_data = requests.get(f"{MAIL_TM_API}/messages/{m_id}", headers=headers).json()
+                    msg_text += f"👤 **From:** {m['from']['name'] or m['from']['address']}\n📌 **Subject:** {m['subject']}\n📝 **Message:** `{m_data['intro'] or 'Tap to view content'}`\n---\n"
+                
+                await query.edit_message_text(msg_text, parse_mode='Markdown', reply_markup=main_menu())
+        except Exception:
+            await query.edit_message_text("❌ Connection error. Try Refresh.", reply_markup=main_menu())
 
     elif query.data == 'delete_mail':
         context.user_data.clear()
-        await query.edit_message_text("🗑️ Session cleared successfully.", reply_markup=main_menu_keyboard())
+        await query.edit_message_text("🗑️ Session deleted. Generate a new one.", reply_markup=main_menu())
 
 def main():
-    keep_alive() # For Render 24/7
+    keep_alive()
     app_bot = Application.builder().token(TOKEN).build()
     app_bot.add_handler(CommandHandler("start", start))
     app_bot.add_handler(CallbackQueryHandler(button_handler))
-    
-    print("Bot is running with 5 Domains!")
+    print("Bot is running with Mail.tm API!")
     app_bot.run_polling()
 
 if __name__ == '__main__':
