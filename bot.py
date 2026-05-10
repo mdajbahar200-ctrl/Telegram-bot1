@@ -1,6 +1,6 @@
 import logging
 import os
-import re
+from gtts import gTTS
 from flask import Flask
 from threading import Thread
 from telegram import Update
@@ -11,7 +11,7 @@ app = Flask('')
 
 @app.route('/')
 def home():
-    return "YouTube Thumbnail Bot is running!"
+    return "TTS Bot is running!"
 
 def run():
     port = int(os.environ.get("PORT", 8080))
@@ -22,62 +22,54 @@ def keep_alive():
     t.start()
 
 # --- Bot Settings ---
-# @BotFather থেকে পাওয়া টোকেনটি এখানে দিন
+# @BotFather থেকে পাওয়া আপনার টোকেনটি এখানে দিন
 TOKEN = '8691093894:AAE_BONWwZbanaHBTlJJqAFx3cPY2f_s5rk'
 
 logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', level=logging.INFO)
 
-# ইউটিউব ইউআরএল থেকে ভিডিও আইডি বের করার লজিক (Regex)
-def extract_video_id(url):
-    pattern = r'(?:v=|\/)([0-9A-Za-z_-]{11}).*'
-    match = re.search(pattern, url)
-    return match.group(1) if match else None
-
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "👋 **YouTube Thumbnail Downloader**-এ স্বাগতম!\n\n"
-        "যেকোনো ইউটিউব ভিডিওর লিঙ্ক পাঠান, আমি আপনাকে সেটির HD থাম্বনেইল পাঠিয়ে দেব।"
+        "👋 **TTS Bot**-এ স্বাগতম!\n\n"
+        "আপনি যা লিখে পাঠাবেন, আমি সেটা আপনাকে ভয়েস মেসেজ হিসেবে শুনিয়ে দেব।\n"
+        "বাংলা বা ইংরেজি যেকোনো কিছু লিখে পাঠান!"
     )
 
-async def handle_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    url = update.message.text
-    video_id = extract_video_id(url)
-
-    if not video_id:
-        await update.message.reply_text("❌ এটি সঠিক ইউটিউব লিঙ্ক নয়। দয়া করে সঠিক লিঙ্ক পাঠান।")
+async def handle_text_to_speech(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_text = update.message.text
+    
+    if not user_text:
         return
 
-    # ইউটিউব থাম্বনেইলের বিভিন্ন কোয়ালিটি ইউআরএল
-    # maxresdefault হলো সবথেকে হাই কোয়ালিটি (HD)
-    hd_thumbnail = f"https://img.youtube.com/vi/{video_id}/maxresdefault.jpg"
-    sd_thumbnail = f"https://img.youtube.com/vi/{video_id}/hqdefault.jpg"
+    # ইউজারকে জানানো হচ্ছে কাজ চলছে
+    status_msg = await update.message.reply_text("🎙️ Processing your voice... please wait.")
 
     try:
-        # প্রথমে HD ছবি পাঠানোর চেষ্টা করবে
-        await update.message.reply_photo(
-            photo=hd_thumbnail,
-            caption=f"✅ **HD Thumbnail Downloaded**\n\nLink: {url}",
-            parse_mode='Markdown'
-        )
-    except Exception:
-        try:
-            # যদি HD না থাকে (পুরাতন ভিডিওর ক্ষেত্রে), তবে স্ট্যান্ডার্ড কোয়ালিটি পাঠাবে
-            await update.message.reply_photo(
-                photo=sd_thumbnail,
-                caption=f"✅ **Standard Quality Thumbnail**\n(HD not available for this video)\n\nLink: {url}",
-                parse_mode='Markdown'
-            )
-        except Exception as e:
-            await update.message.reply_text("❌ দুঃখিত, থাম্বনেইলটি পাওয়া যায়নি।")
+        # Google Text-to-Speech ব্যবহার করে অডিও তৈরি (বাংলা অটো ডিটেক্ট করবে)
+        tts = gTTS(text=user_text, lang='bn') 
+        
+        audio_file = "voice.mp3"
+        tts.save(audio_file)
+
+        # টেলিগ্রামে ভয়েস মেসেজ হিসেবে পাঠানো
+        with open(audio_file, 'rb') as voice:
+            await update.message.reply_voice(voice=voice)
+        
+        # কাজ শেষে অডিও ফাইলটি ডিলিট করে দেওয়া (সার্ভার পরিষ্কার রাখতে)
+        os.remove(audio_file)
+        await status_msg.delete()
+
+    except Exception as e:
+        logging.error(e)
+        await status_msg.edit_text("❌ দুঃখিত, ভয়েস তৈরি করতে সমস্যা হয়েছে।")
 
 def main():
     keep_alive() # রেন্ডারে ২৪ ঘণ্টা সচল রাখতে
     app_bot = Application.builder().token(TOKEN).build()
     
     app_bot.add_handler(CommandHandler("start", start))
-    app_bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_link))
+    app_bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_to_speech))
     
-    print("YouTube Thumbnail Bot is Online!")
+    print("TTS Bot is Online!")
     app_bot.run_polling()
 
 if __name__ == '__main__':
