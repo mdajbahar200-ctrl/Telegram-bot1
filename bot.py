@@ -1,17 +1,16 @@
 import logging
 import os
-from gtts import gTTS
+import asyncio
+import edge_tts
 from flask import Flask
 from threading import Thread
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
-# --- Flask Server for Render (Keep Alive) ---
+# --- Flask Server ---
 app = Flask('')
-
 @app.route('/')
-def home():
-    return "TTS Bot is running!"
+def home(): return "Human Voice Bot is running!"
 
 def run():
     port = int(os.environ.get("PORT", 8080))
@@ -22,54 +21,39 @@ def keep_alive():
     t.start()
 
 # --- Bot Settings ---
-# @BotFather থেকে পাওয়া আপনার টোকেনটি এখানে দিন
 TOKEN = '8691093894:AAE_BONWwZbanaHBTlJJqAFx3cPY2f_s5rk'
+
+# কন্ঠ সেট করা (বাংলা প্রফেশনাল কন্ঠ)
+# অপশন ১: 'bn-BD-NabanitaNeural' (মেয়েদের কন্ঠ)
+# অপশন ২: 'bn-BD-PradeepNeural' (ছেলেদের কন্ঠ)
+VOICE = 'bn-BD-NabanitaNeural'
 
 logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', level=logging.INFO)
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "👋 **TTS Bot**-এ স্বাগতম!\n\n"
-        "আপনি যা লিখে পাঠাবেন, আমি সেটা আপনাকে ভয়েস মেসেজ হিসেবে শুনিয়ে দেব।\n"
-        "বাংলা বা ইংরেজি যেকোনো কিছু লিখে পাঠান!"
-    )
-
-async def handle_text_to_speech(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def handle_tts(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_text = update.message.text
+    status_msg = await update.message.reply_text("🎙️ মানুষের কন্ঠে রূপান্তর করা হচ্ছে...")
+
+    output_file = "human_voice.mp3"
     
-    if not user_text:
-        return
-
-    # ইউজারকে জানানো হচ্ছে কাজ চলছে
-    status_msg = await update.message.reply_text("🎙️ Processing your voice... please wait.")
-
     try:
-        # Google Text-to-Speech ব্যবহার করে অডিও তৈরি (বাংলা অটো ডিটেক্ট করবে)
-        tts = gTTS(text=user_text, lang='bn') 
-        
-        audio_file = "voice.mp3"
-        tts.save(audio_file)
+        # Edge TTS দিয়ে অডিও তৈরি
+        communicate = edge_tts.Communicate(user_text, VOICE)
+        await communicate.save(output_file)
 
-        # টেলিগ্রামে ভয়েস মেসেজ হিসেবে পাঠানো
-        with open(audio_file, 'rb') as voice:
+        # ভয়েস মেসেজ পাঠানো
+        with open(output_file, 'rb') as voice:
             await update.message.reply_voice(voice=voice)
         
-        # কাজ শেষে অডিও ফাইলটি ডিলিট করে দেওয়া (সার্ভার পরিষ্কার রাখতে)
-        os.remove(audio_file)
+        os.remove(output_file)
         await status_msg.delete()
-
     except Exception as e:
-        logging.error(e)
-        await status_msg.edit_text("❌ দুঃখিত, ভয়েস তৈরি করতে সমস্যা হয়েছে।")
+        await status_msg.edit_text(f"❌ এরর: {str(e)}")
 
 def main():
-    keep_alive() # রেন্ডারে ২৪ ঘণ্টা সচল রাখতে
+    keep_alive()
     app_bot = Application.builder().token(TOKEN).build()
-    
-    app_bot.add_handler(CommandHandler("start", start))
-    app_bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_to_speech))
-    
-    print("TTS Bot is Online!")
+    app_bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_tts))
     app_bot.run_polling()
 
 if __name__ == '__main__':
