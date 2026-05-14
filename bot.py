@@ -1,100 +1,177 @@
+import asyncio
+import aiosqlite
 import logging
-import sqlite3
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
-from telegram.ext import (
-    Application, CallbackQueryHandler, CommandHandler, 
-    MessageHandler, filters, ConversationHandler, ContextTypes
+from aiogram import Bot, Dispatcher, F
+from aiogram.types import (
+    Message,
+    CallbackQuery,
+    InlineKeyboardMarkup,
+    InlineKeyboardButton
+)
+from aiogram.filters import CommandStart
+from aiogram.fsm.storage.memory import MemoryStorage
+
+# ================= CONFIG =================
+
+TOKEN = "8831236489:AAHKvJWV2PQCZwzQ3Sg3Yx1klXK08Jut4gE"
+ADMIN_ID = 6878641639
+
+bot = Bot(token=TOKEN)
+dp = Dispatcher(storage=MemoryStorage())
+logging.basicConfig(level=logging.INFO)
+
+# ================= DATABASE =================
+
+async def init_db():
+    async with aiosqlite.connect("market.db") as db:
+        await db.execute("""
+        CREATE TABLE IF NOT EXISTS products (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            seller_id INTEGER,
+            title TEXT,
+            price TEXT,
+            description TEXT
+        )
+        """)
+        await db.commit()
+
+# ================= MAIN MENU =================
+
+main_menu = InlineKeyboardMarkup(
+    inline_keyboard=[
+        [InlineKeyboardButton(text="🛒 Products", callback_data="products")],
+        [InlineKeyboardButton(text="➕ Add Product", callback_data="add_product")],
+        [InlineKeyboardButton(text="👤 Profile", callback_data="profile")]
+    ]
 )
 
-# আপনার টেলিগ্রাম আইডি এখানে দিন (অ্যাডমিন প্যানেল এক্সেস করার জন্য)
-ADMIN_ID = "6878641639" 
+# ================= START =================
 
-logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
+@dp.message(CommandStart())
+async def start(message: Message):
+    await message.answer(
+        f"🔥 Welcome To Marketplace Bot, {message.from_user.first_name}!",
+        reply_markup=main_menu
+    )
 
-# স্টেটসমূহ
-TYPING_NAME, TYPING_PRICE, TYPING_PHOTO = range(3)
+# ================= PROFILE =================
 
-def init_db():
-    conn = sqlite3.connect('market.db')
-    cursor = conn.cursor()
-    cursor.execute('''CREATE TABLE IF NOT EXISTS products 
-                      (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, price TEXT, photo_id TEXT, seller_id TEXT, status TEXT DEFAULT 'active')''')
-    cursor.execute('''CREATE TABLE IF NOT EXISTS users (user_id TEXT PRIMARY KEY, role TEXT DEFAULT 'user')''')
-    conn.commit()
-    conn.close()
+@dp.callback_query(F.data == "profile")
+async def profile(call: CallbackQuery):
+    text = (
+        f"👤 User ID: {call.from_user.id}\n"
+        f"📛 Name: {call.from_user.full_name}"
+    )
+    await call.message.edit_text(text, reply_markup=main_menu)
 
-init_db()
+# ================= ADD PRODUCT =================
 
-# --- ১. ইউজার প্যানেল (Buyers) ---
-def user_menu():
-    keyboard = [
-        [InlineKeyboardButton("🛍 প্রোডাক্ট ব্রাউজ করুন", callback_data='buy_all')],
-        [InlineKeyboardButton("📜 আমার অর্ডার", callback_data='my_orders')],
-        [InlineKeyboardButton("🧑‍💻 সেলার প্যানেলে যান", callback_data='seller_home')]
-    ]
-    return InlineKeyboardMarkup(keyboard)
+user_step = {}
+product_data = {}
 
-# --- ২. সেলার প্যানেল (Sellers) ---
-def seller_menu():
-    keyboard = [
-        [InlineKeyboardButton("➕ নতুন প্রোডাক্ট অ্যাড", callback_data='list_item')],
-        [InlineKeyboardButton("📦 আমার লিস্টিং", callback_data='my_listings')],
-        [InlineKeyboardButton("💰 মোট বিক্রয়", callback_data='stats')],
-        [InlineKeyboardButton("🔙 মেইন মেনু", callback_data='main_menu')]
-    ]
-    return InlineKeyboardMarkup(keyboard)
+@dp.callback_query(F.data == "add_product")
+async def add_product(call: CallbackQuery):
+    user_step[call.from_user.id] = "title"
+    await call.message.answer("📦 Product Title পাঠাও")
+    await call.answer()
 
-# --- ৩. অ্যাডমিন প্যানেল (Admin Only) ---
-def admin_menu():
-    keyboard = [
-        [InlineKeyboardButton("📊 বোট স্ট্যাটস", callback_data='admin_stats')],
-        [InlineKeyboardButton("🚫 ইউজার ব্যান করুন", callback_data='ban_user')],
-        [InlineKeyboardButton("📢 ব্রডকাস্ট মেসেজ", callback_data='broadcast')],
-        [InlineKeyboardButton("🔙 মেইন মেনু", callback_data='main_menu')]
-    ]
-    return InlineKeyboardMarkup(keyboard)
+@dp.message(F.text & ~F.text.startswith("/"))
+async def product_steps(message: Message):
+    user_id = message.from_user.id
+    if user_id not in user_step:
+        return
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = str(update.effective_user.id)
-    
-    # অ্যাডমিন চেক
-    if user_id == ADMIN_ID:
-        text = "👑 স্বাগতম বস! এটি আপনার অ্যাডমিন প্যানেল।"
-        reply_markup = admin_menu()
-    else:
-        text = "👋 স্বাগতম! আমাদের মার্কেটপ্লেসে আপনার কি প্রয়োজন?"
-        reply_markup = user_menu()
+    step = user_step[user_id]
 
-    if update.message:
-        await update.message.reply_text(text, reply_markup=reply_markup)
-    else:
-        await update.callback_query.message.edit_text(text, reply_markup=reply_markup)
+    if step == "title":
+        product_data[user_id] = {"title": message.text}
+        user_step[user_id] = "price"
+        await message.answer("💰 Product Price পাঠাও")
 
-# প্যানেল সুইচিং হ্যান্ডলার
-async def handle_panels(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    
-    if query.data == 'seller_home':
-        await query.edit_text("👨‍💼 সেলার ড্যাশবোর্ড\nএখান থেকে আপনার ইনভেন্টরি ম্যানেজ করুন।", reply_markup=seller_menu())
-    elif query.data == 'main_menu':
-        await start(update, context)
+    elif step == "price":
+        product_data[user_id]["price"] = message.text
+        user_step[user_id] = "description"
+        await message.answer("📝 Product Description পাঠাও")
 
-# --- আগের লিস্টিং ফাংশনগুলো এখানে থাকবে ---
-# (কোড ছোট করার জন্য সব ফাংশন পুনরায় লেখা হলো না, তবে আগের কোডের মতো get_name, get_photo কাজ করবে)
+    elif step == "description":
+        product_data[user_id]["description"] = message.text
+        data = product_data[user_id]
 
-def main():
-    TOKEN = "8831236489:AAHKvJWV2PQCZwzQ3Sg3Yx1klXK08Jut4gE"
-    app = Application.builder().token(TOKEN).build()
+        async with aiosqlite.connect("market.db") as db:
+            await db.execute(
+                "INSERT INTO products (seller_id, title, price, description) VALUES (?, ?, ?, ?)",
+                (user_id, data["title"], data["price"], data["description"])
+            )
+            await db.commit()
 
-    # হ্যান্ডলার অ্যাড
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CallbackQueryHandler(handle_panels, pattern='^(seller_home|main_menu)$'))
-    
-    # অন্যান্য লজিক (buy_all, list_item ইত্যাদি) যুক্ত করুন...
+        del user_step[user_id]
+        del product_data[user_id]
+        await message.answer("✅ Product Added Successfully", reply_markup=main_menu)
 
-    print("মার্কেটপ্লেস বোট ৩টি প্যানেলসহ চালু হচ্ছে...")
-    app.run_polling()
+# ================= PRODUCTS =================
 
-if __name__ == '__main__':
-    main()
+@dp.callback_query(F.data == "products")
+async def products(call: CallbackQuery):
+    async with aiosqlite.connect("market.db") as db:
+        async with db.execute("SELECT * FROM products") as cursor:
+            rows = await cursor.fetchall()
+
+    if not rows:
+        await call.message.answer("❌ No Products Found")
+        await call.answer()
+        return
+
+    for row in rows:
+        p_id, s_id, title, price, desc = row
+        keyboard = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [InlineKeyboardButton(text="🛍 Buy Now", callback_data=f"buy_{p_id}")],
+                [InlineKeyboardButton(text="📩 Contact Seller", url=f"tg://user?id={s_id}")]
+            ]
+        )
+        text = f"📦 {title}\n💰 Price: {price}\n📝 {desc}"
+        await call.message.answer(text, reply_markup=keyboard)
+    await call.answer()
+
+# ================= BUY =================
+
+@dp.callback_query(F.data.startswith("buy_"))
+async def buy_product(call: CallbackQuery):
+    product_id = call.data.split("_")[1]
+    async with aiosqlite.connect("market.db") as db:
+        async with db.execute("SELECT seller_id, title FROM products WHERE id=?", (product_id,)) as cursor:
+            product = await cursor.fetchone()
+
+    if product:
+        seller_id, title = product
+        try:
+            await bot.send_message(seller_id, f"🛒 New Order Received For: {title}\nBuyer ID: {call.from_user.id}")
+            await call.message.answer("✅ Order Sent To Seller")
+        except:
+            await call.message.answer("❌ Seller cannot be notified.")
+    await call.answer()
+
+# ================= ADMIN PANEL =================
+
+@dp.message(F.text == "/admin")
+async def admin_panel(message: Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+
+    async with aiosqlite.connect("market.db") as db:
+        async with db.execute("SELECT COUNT(*) FROM products") as cursor:
+            total_products = await cursor.fetchone()
+
+    await message.answer(f"⚙️ Admin Panel\n\n📦 Total Products: {total_products[0]}")
+
+# ================= RUN =================
+
+async def main():
+    await init_db()
+    await dp.start_polling(bot)
+
+if __name__ == "__main__":
+    try:
+        asyncio.run(main())
+    except (KeyboardInterrupt, SystemExit):
+        logging.info("Bot stopped")
