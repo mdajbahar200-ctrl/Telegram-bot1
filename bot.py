@@ -7,7 +7,7 @@ from telegram.ext import (
 )
 
 # আপনার টেলিগ্রাম আইডি এখানে দিন (অ্যাডমিন প্যানেল এক্সেস করার জন্য)
-ADMIN_ID = "YOUR_TELEGRAM_ID" 
+ADMIN_ID = "6878641639" 
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 
