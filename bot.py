@@ -1,60 +1,91 @@
 import logging
-import os
-import asyncio
-import edge_tts
-from flask import Flask
-from threading import Thread
-from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram.ext import (
+    Application,
+    CallbackQueryHandler,
+    CommandHandler,
+    MessageHandler,
+    filters,
+    ConversationHandler,
+    ContextTypes,
+)
 
-# --- Flask Server ---
-app = Flask('')
-@app.route('/')
-def home(): return "Human Voice Bot is running!"
+# লগিং
+logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 
-def run():
-    port = int(os.environ.get("PORT", 8080))
-    app.run(host='0.0.0.0', port=port)
+# স্টেট
+TYPING_NAME, TYPING_PRICE, TYPING_PHOTO = range(3)
 
-def keep_alive():
-    t = Thread(target=run)
-    t.start()
+# মেনু বাটন ফাংশন
+def main_menu_keyboard():
+    keyboard = [
+        [InlineKeyboardButton("🛍 Buy Product", callback_data='buy'),
+         InlineKeyboardButton("➕ List Product", callback_data='list')],
+        [InlineKeyboardButton("👤 My Profile", callback_data='profile'),
+         InlineKeyboardButton("🆘 Support", callback_data='support')]
+    ]
+    return InlineKeyboardMarkup(keyboard)
 
-# --- Bot Settings ---
-TOKEN = '8691093894:AAE_BONWwZbanaHBTlJJqAFx3cPY2f_s5rk'
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = "স্বাগতম! আপনি কি করতে চান? নিচের বাটন থেকে সিলেক্ট করুন:"
+    if update.message:
+        await update.message.reply_text(text, reply_markup=main_menu_keyboard())
+    else:
+        await update.callback_query.message.edit_text(text, reply_markup=main_menu_keyboard())
 
-# কন্ঠ সেট করা (বাংলা প্রফেশনাল কন্ঠ)
-# অপশন ১: 'bn-BD-NabanitaNeural' (মেয়েদের কন্ঠ)
-# অপশন ২: 'bn-BD-PradeepNeural' (ছেলেদের কন্ঠ)
-VOICE = 'bn-BD-NabanitaNeural'
+# লিস্টিং শুরু
+async def start_listing(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    await query.edit_text("আপনার প্রোডাক্টের নাম লিখুন:")
+    return TYPING_NAME
 
-logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', level=logging.INFO)
+async def get_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data['p_name'] = update.message.text
+    await update.message.reply_text(f"'{update.message.text}' এর দাম কত? (শুধু সংখ্যা)")
+    return TYPING_PRICE
 
-async def handle_tts(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_text = update.message.text
-    status_msg = await update.message.reply_text("🎙️ মানুষের কন্ঠে রূপান্তর করা হচ্ছে...")
+async def get_price(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data['p_price'] = update.message.text
+    await update.message.reply_text("প্রোডাক্টের একটি ছবি পাঠান:")
+    return TYPING_PHOTO
 
-    output_file = "human_voice.mp3"
+async def get_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    p_name = context.user_data['p_name']
+    p_price = context.user_data['p_price']
     
-    try:
-        # Edge TTS দিয়ে অডিও তৈরি
-        communicate = edge_tts.Communicate(user_text, VOICE)
-        await communicate.save(output_file)
+    await update.message.reply_text(
+        f"✅ সফলভাবে লিস্ট হয়েছে!\n\n📦 নাম: {p_name}\n💰 দাম: {p_price} টাকা",
+        reply_markup=main_menu_keyboard()
+    )
+    return ConversationHandler.END
 
-        # ভয়েস মেসেজ পাঠানো
-        with open(output_file, 'rb') as voice:
-            await update.message.reply_voice(voice=voice)
-        
-        os.remove(output_file)
-        await status_msg.delete()
-    except Exception as e:
-        await status_msg.edit_text(f"❌ এরর: {str(e)}")
+async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("বাতিল করা হয়েছে।", reply_markup=main_menu_keyboard())
+    return ConversationHandler.END
 
 def main():
-    keep_alive()
-    app_bot = Application.builder().token(TOKEN).build()
-    app_bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_tts))
-    app_bot.run_polling()
+    TOKEN = "8831236489:AAHKvJWV2PQCZwzQ3Sg3Yx1klXK08Jut4gE"
+    application = Application.builder().token(TOKEN).build()
+
+    conv_handler = ConversationHandler(
+        entry_points=[CallbackQueryHandler(start_listing, pattern='^list$')],
+        states={
+            TYPING_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_name)],
+            TYPING_PRICE: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_price)],
+            TYPING_PHOTO: [MessageHandler(filters.PHOTO, get_photo)],
+        },
+        fallbacks=[CommandHandler('cancel', cancel)],
+    )
+
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(conv_handler)
+    
+    # সাপোর্ট ও অন্যান্য বাটনের জন্য সিম্পল হ্যান্ডলার
+    application.add_handler(CallbackQueryHandler(start, pattern='^main_menu$'))
+
+    print("Bot is running...")
+    application.run_polling()
 
 if __name__ == '__main__':
     main()
