@@ -21,7 +21,7 @@ from aiogram.client.default import DefaultBotProperties
 
 TOKEN = "8831236489:AAFjpi1sDF880JF-hoiWTRfASITql0cdGcw"
 
-ADMIN_ID = 123456789  # Replace this with your actual Telegram User ID
+ADMIN_ID = 6878641639  # Replace this with your actual Telegram User ID
 
 # FIXED: Added DefaultBotProperties to solve the TypeError from your screenshot
 bot = Bot(
