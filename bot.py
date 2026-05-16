@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import aiosqlite
+import os # পোর্ট রিড করার জন্য যোগ করা হয়েছে
 
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import CommandStart, Command
@@ -14,6 +15,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.context import FSMContext
 from aiogram.enums import ParseMode
+from aiohttp import web # ওয়েব সার্ভার সচল করার জন্য লাইব্রেরি যুক্ত করা হয়েছে
 
 # ================= CONFIG =================
 
@@ -78,7 +80,7 @@ async def check_user(user_id):
         if not user:
             await db.execute(
                 "INSERT INTO users (user_id, balance) VALUES (?, ?)",
-                (user_id, 500) # Provided 500 free balance for testing new users
+                (user_id, 500)
             )
             await db.commit()
 
@@ -122,7 +124,6 @@ async def back(call: CallbackQuery, state: FSMContext):
             reply_markup=main_menu()
         )
     except Exception:
-        # If the message contains a photo, edit_text won't work, so sending a new message
         await call.message.delete()
         await call.message.answer(
             "🏠 Main Menu",
@@ -285,7 +286,7 @@ async def view_product(call: CallbackQuery):
         ]
     )
 
-    await call.message.delete() # Clears previous menu to display photo cleanly
+    await call.message.delete()
     await call.message.answer_photo(
         photo=photo,
         caption=text,
@@ -300,7 +301,6 @@ async def buy_product(call: CallbackQuery):
     buyer_id = call.from_user.id
 
     async with aiosqlite.connect("market.db") as db:
-        # Fetch product details
         async with db.execute("SELECT seller_id, title, price FROM products WHERE id=?", (product_id,)) as cursor:
             product = await cursor.fetchone()
         
@@ -312,7 +312,6 @@ async def buy_product(call: CallbackQuery):
         if buyer_id == seller_id:
             return await call.answer("❌ You cannot buy your own product!", show_alert=True)
 
-        # Check buyer balance
         async with db.execute("SELECT balance FROM users WHERE user_id=?", (buyer_id,)) as cursor:
             buyer_row = await cursor.fetchone()
         
@@ -321,14 +320,12 @@ async def buy_product(call: CallbackQuery):
         if buyer_balance < price:
             return await call.answer(f"❌ Insufficient balance! Required: {price} BDT", show_alert=True)
 
-        # Update balance values (Debit buyer, Credit seller)
         await db.execute("UPDATE users SET balance = balance - ? WHERE user_id = ?", (price, buyer_id))
         await db.execute("UPDATE users SET balance = balance + ? WHERE user_id = ?", (price, seller_id))
         await db.commit()
 
     await call.answer("✅ Order placed successfully!", show_alert=True)
 
-    # Sending automated notifications to seller and admin
     try:
         await bot.send_message(
             chat_id=seller_id,
@@ -383,7 +380,6 @@ async def delete_product(call: CallbackQuery):
         await db.commit()
 
     await call.answer("✅ Product Deleted Successfully!")
-    # Refresh list upon deletion
     await my_products(call)
 
 # ================= SEARCH =================
@@ -423,7 +419,6 @@ async def admin(message: Message):
     if message.from_user.id != ADMIN_ID:
         return
 
-    # Fetches real-time counts from database for admin overview
     async with aiosqlite.connect("market.db") as db:
         async with db.execute("SELECT COUNT(*) FROM users") as c1:
             total_users = (await c1.fetchone())[0]
@@ -446,10 +441,31 @@ async def cancel(message: Message, state: FSMContext):
         reply_markup=main_menu()
     )
 
+# ================= WEB SERVER FOR RENDER =================
+
+async def web_handle(request):
+    return web.Response(text="Bot is running successfully on Render Web Service!")
+
+async def start_web_server():
+    app = web.Application()
+    app.router.add_get('/', web_handle)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    
+    # Render পরিবেশ থেকে অটোমেটিক পোর্ট রিসিভ করবে, লোকালি টেস্ট করার জন্য ডিফোল্ট ৮০৮০
+    port = int(os.environ.get("PORT", 8080))
+    site = web.TCPSite(runner, '0.0.0.0', port)
+    await site.start()
+    logging.info(f"Render Web Server started on port {port}")
+
 # ================= RUN =================
 
 async def main():
     await init_db()
+    
+    # বটের মেইন ইভেন্ট লুপের সাথে ওয়েব সার্ভারটি প্যারালালি ব্যাকগ্রাউন্ডে রান করানো হচ্ছে
+    await start_web_server() 
+
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
 
