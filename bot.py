@@ -19,7 +19,7 @@ from aiohttp import web # ওয়েব সার্ভার সচল করা
 
 # ================= CONFIG =================
 
-TOKEN = "8831236489:AAFjpi1sDF880JF-hoiWTRfASITql0cdGcw"
+TOKEN = "8831236489:AAHhsnleyAXVfVt0M9PI1oee2t18bwxvveE"
 ADMIN_ID = 6878641639
 
 bot = Bot(
